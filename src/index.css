@@ -1,0 +1,279 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light mode — crisp off-white editorial */
+    --background: 220 20% 97%;
+    --foreground: 220 25% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 10%;
+    --primary: 142 71% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 93%;
+    --secondary-foreground: 220 25% 20%;
+    --muted: 220 15% 93%;
+    --muted-foreground: 220 10% 48%;
+    --accent: 142 71% 42%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 142 71% 42%;
+    --radius: 0.625rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 142 71% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 142 71% 42%;
+
+    /* Custom tokens */
+    --gfg-green: 142 71% 42%;
+    --gfg-green-light: 142 60% 95%;
+    --gfg-amber: 38 92% 50%;
+    --gfg-gold: 45 93% 47%;
+    --gfg-silver: 210 7% 56%;
+    --gfg-bronze: 30 64% 43%;
+    --surface: 0 0% 100%;
+    --surface-hover: 220 15% 93%;
+    --surface-raised: 0 0% 100%;
+
+    /* Glow */
+    --glow-primary: rgba(34, 197, 94, 0.18);
+    --glow-primary-strong: rgba(34, 197, 94, 0.32);
+  }
+
+  .dark {
+    /* Dark mode — deep charcoal terminal */
+    --background: 224 27% 8%;
+    --foreground: 213 30% 94%;
+    --card: 224 22% 12%;
+    --card-foreground: 213 30% 94%;
+    --popover: 224 22% 12%;
+    --popover-foreground: 213 30% 94%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 20% 15%;
+    --secondary-foreground: 213 30% 80%;
+    --muted: 224 20% 15%;
+    --muted-foreground: 215 12% 47%;
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 224 17% 19%;
+    --input: 224 17% 19%;
+    --ring: 142 71% 45%;
+    --surface: 224 22% 12%;
+    --surface-hover: 224 20% 15%;
+    --surface-raised: 224 18% 16%;
+
+    --gfg-green: 142 71% 45%;
+    --gfg-green-light: 142 71% 15%;
+    --glow-primary: rgba(74, 222, 128, 0.15);
+    --glow-primary-strong: rgba(74, 222, 128, 0.28);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Syne', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+}
+
+@layer components {
+
+  /* ─── Containers ─── */
+  .gfg-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  /* ─── Surface cards ─── */
+  .glass-card {
+    @apply bg-card border border-border rounded-2xl p-5;
+    transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .glass-card:hover {
+    transform: translateY(-3px);
+    border-color: hsl(var(--primary) / 0.3);
+    box-shadow:
+      0 8px 28px rgba(0,0,0,0.12),
+      0 0 0 1px hsl(var(--primary) / 0.15),
+      0 0 20px var(--glow-primary);
+  }
+
+  .glass-card-hover {
+    @apply glass-card;
+  }
+
+  /* Raised surface — slightly brighter */
+  .surface-raised {
+    background: hsl(var(--surface-raised));
+    @apply border border-border rounded-2xl;
+  }
+
+  /* ─── Glow utilities ─── */
+  .gfg-glow {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2), 0 0 24px var(--glow-primary);
+  }
+
+  .gfg-glow-strong {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4), 0 0 40px var(--glow-primary-strong);
+  }
+
+  /* ─── Badge ─── */
+  .gfg-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .gfg-badge-primary {
+    @apply gfg-badge bg-primary/10 text-primary border-primary/20;
+  }
+
+  /* ─── Stat card ─── */
+  .gfg-stat-card {
+    @apply glass-card flex flex-col items-center justify-center text-center gap-2;
+  }
+
+  /* ─── Leaderboard badges ─── */
+  .gfg-badge-gold {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border;
+    border-color: hsl(var(--gfg-gold)); color: hsl(var(--gfg-gold));
+  }
+  .gfg-badge-silver {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border;
+    border-color: hsl(var(--gfg-silver)); color: hsl(var(--gfg-silver));
+  }
+  .gfg-badge-bronze {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border;
+    border-color: hsl(var(--gfg-bronze)); color: hsl(var(--gfg-bronze));
+  }
+
+  /* ─── Alias kept for backward compat ─── */
+  .gfg-card       { @apply glass-card; }
+  .gfg-card-hover { @apply glass-card; }
+  .neon-text      { @apply text-primary font-bold; }
+  .neon-text-blue { @apply text-accent font-bold; }
+  .neon-border    { @apply border border-primary; }
+
+  /* ─── Page transition ─── */
+  .page-fade-in {
+    animation: pageFadeIn 0.35s ease-out forwards;
+  }
+
+  /* ─── Hero grid background ─── */
+  .hero-grid-bg {
+    --grid-color: hsl(var(--primary) / 0.06);
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+  }
+
+  .dark .hero-grid-bg {
+    --grid-color: hsl(var(--primary) / 0.1);
+  }
+
+  /* Radial fade over grid */
+  .hero-grid-mask {
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, transparent 40%, hsl(var(--background)) 100%);
+  }
+
+  /* ─── Section defaults ─── */
+  section {
+    @apply mt-[72px] pt-[24px];
+  }
+  section:first-of-type {
+    @apply mt-0 pt-0;
+  }
+}
+
+/* ─── Keyframes ─── */
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes floatUp {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--glow-primary); }
+  50%       { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position: 200% center; }
+}
+
+@keyframes scrollLeft {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@layer utilities {
+  .font-display { font-family: 'Syne', system-ui, sans-serif; }
+
+  .animate-float { animation: floatUp 4s ease-in-out infinite; }
+  .animate-pulse-glow { animation: pulseGlow 2.5s ease-in-out infinite; }
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent 25%, hsl(var(--primary) / 0.15) 50%, transparent 75%);
+    background-size: 200% auto;
+    animation: shimmer 3s linear infinite;
+  }
+  .animate-scroll-left {
+    animation: scrollLeft 30s linear infinite;
+  }
+  .animate-scroll-left:hover {
+    animation-play-state: paused;
+  }
+
+  /* Gradient text */
+  .text-gradient-green {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(142 90% 65%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, hsl(var(--gfg-gold)), hsl(45 100% 70%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
