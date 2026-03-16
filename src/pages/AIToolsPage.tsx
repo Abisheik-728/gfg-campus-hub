@@ -6,6 +6,75 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const oneDarkStyle = oneDark as any;
+
+// ─── Markdown Renderer for AI Chat Responses ─────────────────────────────────
+function MarkdownMessage({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        code({ className, children }: any) {
+          const match = /language-(\w+)/.exec(className || "");
+          if (match) {
+            return (
+              <div className="my-3 rounded-xl overflow-hidden border border-white/10">
+                <div className="flex items-center justify-between px-4 py-1.5 bg-[#1a1a2e] border-b border-white/10">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{match[1]}</span>
+                </div>
+                <SyntaxHighlighter
+                  style={oneDarkStyle}
+                  language={match[1]}
+                  PreTag="div"
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: 0,
+                    background: "#0d0d1a",
+                    fontSize: "0.78rem",
+                    lineHeight: "1.6",
+                    padding: "1rem",
+                    overflowX: "auto",
+                  }}
+                >
+                  {String(children).replace(/\n$/, "")}
+                </SyntaxHighlighter>
+              </div>
+            );
+          }
+          return (
+            <code className="bg-white/10 text-emerald-300 font-mono text-[0.8em] px-1.5 py-0.5 rounded">
+              {children}
+            </code>
+          );
+        },
+        h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 border-b border-white/10 pb-1">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-bold text-blue-300 mt-3 mb-1.5">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold text-gray-200 mt-2 mb-1">{children}</h3>,
+        p: ({ children }) => <p className="text-sm text-gray-200 leading-relaxed mb-2">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc list-inside text-sm text-gray-300 space-y-1 mb-2 ml-2">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal list-inside text-sm text-gray-300 space-y-1 mb-2 ml-2">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
+        em: ({ children }) => <em className="italic text-gray-300">{children}</em>,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-blue-500 pl-3 my-2 text-gray-400 italic text-sm">{children}</blockquote>
+        ),
+        a: ({ href, children }) => (
+          <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 underline hover:text-blue-300 text-sm">{children}</a>
+        ),
+        hr: () => <hr className="border-white/10 my-3" />,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
 
 const API_BASE = "http://localhost:5000/api";
 
@@ -47,7 +116,7 @@ export default function AIToolsPage() {
     setActiveAnalysis("mentor");
 
     try {
-      const res = await fetch(`${API_BASE}/mentor`, {
+      const res = await fetch(`${API_BASE}/ai-mentor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [...mentorMessages, userMsg] })
@@ -67,7 +136,7 @@ export default function AIToolsPage() {
     setActiveAnalysis("debugger");
     setDebugResult(null);
     try {
-      const res = await fetch(`${API_BASE}/debug`, {
+      const res = await fetch(`${API_BASE}/debug-code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: debugCode, language: debugLang })
@@ -87,7 +156,7 @@ export default function AIToolsPage() {
     setActiveAnalysis("explainer");
     setExplainResult(null);
     try {
-      const res = await fetch(`${API_BASE}/explain`, {
+      const res = await fetch(`${API_BASE}/explain-code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: explainCode })
@@ -106,7 +175,7 @@ export default function AIToolsPage() {
     setActiveAnalysis("roadmap");
     setRoadmapResult(null);
     try {
-      const res = await fetch(`${API_BASE}/roadmap`, {
+      const res = await fetch(`${API_BASE}/generate-roadmap`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal: roadmapGoal, skillLevel: roadmapLevel })
@@ -128,7 +197,7 @@ export default function AIToolsPage() {
     const formData = new FormData();
     formData.append("resume", resumeFile);
     try {
-      const res = await fetch(`${API_BASE}/resume-analyze`, {
+      const res = await fetch(`${API_BASE}/analyze-resume`, {
         method: "POST",
         body: formData
       });
@@ -308,14 +377,123 @@ export default function AIToolsPage() {
             </Button>
 
             {roadmapResult && (
-              <ScrollArea className="h-[300px] w-full pr-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
-                  {Object.entries(roadmapResult).map(([key, val]: any) => (
-                    <div key={key} className="p-4 bg-muted/20 border border-white/10 rounded-xl">
-                      <h4 className="text-sm font-bold text-purple-400 mb-2 capitalize">{key.replace(/([A-Z])/g, ' $1')}</h4>
-                      <pre className="text-xs text-gray-400 whitespace-pre-wrap">{typeof val === 'string' ? val : JSON.stringify(val, null, 2)}</pre>
+              <ScrollArea className="h-[380px] w-full pr-2">
+                <div className="space-y-4 pb-4">
+
+                  {/* Learning Stages */}
+                  {Array.isArray(roadmapResult.LearningStages) && roadmapResult.LearningStages.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" /> Learning Stages
+                      </h4>
+                      <div className="space-y-2">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {roadmapResult.LearningStages.map((stage: any, i: number) => (
+                          <div key={i} className="p-3.5 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                              <span className="font-bold text-sm text-white">{stage.title || stage.stage || stage.name || `Stage ${i + 1}`}</span>
+                              {stage.duration && (
+                                <span className="ml-auto text-[10px] text-purple-400 font-semibold bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20 shrink-0">{stage.duration}</span>
+                              )}
+                            </div>
+                            {stage.description && <p className="text-xs text-gray-400 mb-1.5 ml-8">{stage.description}</p>}
+                            {Array.isArray(stage.objectives) && (
+                              <ul className="ml-8 space-y-0.5">
+                                {stage.objectives.map((obj: string, j: number) => (
+                                  <li key={j} className="text-xs text-gray-300 flex items-start gap-1.5"><span className="text-purple-400 mt-0.5 shrink-0">•</span>{obj}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {Array.isArray(stage.topics) && (
+                              <ul className="ml-8 space-y-0.5">
+                                {stage.topics.map((t: string, j: number) => (
+                                  <li key={j} className="text-xs text-gray-300 flex items-start gap-1.5"><span className="text-purple-400 mt-0.5 shrink-0">•</span>{t}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Topics To Study */}
+                  {roadmapResult.TopicsToStudy && (
+                    <div className="p-3.5 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                      <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Topics To Study
+                      </h4>
+                      <ul className="space-y-1">
+                        {(Array.isArray(roadmapResult.TopicsToStudy)
+                          ? roadmapResult.TopicsToStudy
+                          : Object.entries(roadmapResult.TopicsToStudy).map(([k, v]) => `${k}: ${Array.isArray(v) ? (v as string[]).join(', ') : v}`)
+                        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                        ).map((item: any, i: number) => (
+                          <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5 list-none">
+                            <span className="text-blue-400 mt-0.5 shrink-0">•</span>
+                            {typeof item === 'object' ? JSON.stringify(item) : String(item)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Suggested Projects */}
+                  {roadmapResult.SuggestedProjects && (
+                    <div className="p-3.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                      <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Suggested Projects
+                      </h4>
+                      <ul className="space-y-1">
+                        {(Array.isArray(roadmapResult.SuggestedProjects)
+                          ? roadmapResult.SuggestedProjects
+                          : Object.values(roadmapResult.SuggestedProjects)
+                        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                        ).map((item: any, i: number) => (
+                          <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5 list-none">
+                            <span className="text-emerald-400 mt-0.5 shrink-0">•</span>
+                            {typeof item === 'object' ? (item.name || item.title || JSON.stringify(item)) : String(item)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Recommended Tools */}
+                  {roadmapResult.RecommendedTools && (
+                    <div className="p-3.5 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                      <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Recommended Tools
+                      </h4>
+                      <ul className="space-y-1">
+                        {(Array.isArray(roadmapResult.RecommendedTools)
+                          ? roadmapResult.RecommendedTools
+                          : Object.entries(roadmapResult.RecommendedTools).map(([k, v]) => `${k}: ${Array.isArray(v) ? (v as string[]).join(', ') : v}`)
+                        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                        ).map((item: any, i: number) => (
+                          <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5 list-none">
+                            <span className="text-amber-400 mt-0.5 shrink-0">•</span>
+                            {typeof item === 'object' ? JSON.stringify(item) : String(item)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Fallback for any unexpected extra keys */}
+                  {Object.keys(roadmapResult)
+                    .filter(k => !['LearningStages', 'TopicsToStudy', 'SuggestedProjects', 'RecommendedTools'].includes(k))
+                    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+                    .map((key: string) => (
+                      <div key={key} className="p-3.5 bg-white/5 border border-white/10 rounded-xl">
+                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{key.replace(/([A-Z])/g, ' $1').trim()}</h4>
+                        <pre className="text-xs text-gray-400 whitespace-pre-wrap break-words">
+                          {typeof roadmapResult[key] === 'string' ? roadmapResult[key] : JSON.stringify(roadmapResult[key], null, 2)}
+                        </pre>
+                      </div>
+                    ))}
+
                 </div>
               </ScrollArea>
             )}
@@ -350,17 +528,110 @@ export default function AIToolsPage() {
             </Button>
 
             {resumeResult && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 p-4 bg-muted/20 border border-white/10 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-orange-400 uppercase">Resume Score</span>
-                  <span className="text-lg font-black text-white">{resumeResult.score}/100</span>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="mt-4 space-y-3"
+              >
+                {/* Score */}
+                <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-orange-400 uppercase tracking-widest">Resume Score</span>
+                    <span className={`text-xl font-black ${
+                      resumeResult.score >= 75 ? 'text-emerald-400' :
+                      resumeResult.score >= 50 ? 'text-amber-400' : 'text-red-400'
+                    }`}>{resumeResult.score}<span className="text-xs text-gray-500 font-medium">/100</span></span>
+                  </div>
+                  <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-1000 ${
+                        resumeResult.score >= 75 ? 'bg-emerald-500' :
+                        resumeResult.score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${resumeResult.score}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1.5 text-right">
+                    {resumeResult.score >= 75 ? '🟢 Strong resume' : resumeResult.score >= 50 ? '🟡 Needs improvement' : '🔴 Significant gaps'}
+                  </p>
                 </div>
-                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-orange-500 transition-all duration-1000" style={{ width: `${resumeResult.score}%` }} />
-                </div>
-                <div className="text-[10px] text-gray-400 line-clamp-3">
-                  <span className="text-orange-400 font-bold">Skills: </span>{resumeResult.skills}
-                </div>
+
+                {/* Skills */}
+                {resumeResult.skills && (
+                  <div className="p-3.5 bg-orange-500/5 border border-orange-500/15 rounded-xl">
+                    <h4 className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2.5 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" /> Detected Skills
+                    </h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(Array.isArray(resumeResult.skills)
+                        ? resumeResult.skills
+                        : String(resumeResult.skills).split(/[,;|•\n]+/)
+                      ).map((s: string, i: number) => s.trim() && (
+                        <span key={i} className="px-2 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/25 text-orange-300 text-[10px] font-semibold">
+                          {s.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Strengths */}
+                {resumeResult.strengths && (
+                  <div className="p-3.5 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
+                    <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> Strengths
+                    </h4>
+                    <ul className="space-y-1">
+                      {(Array.isArray(resumeResult.strengths)
+                        ? resumeResult.strengths
+                        : String(resumeResult.strengths).split(/[•\n]+/)
+                      ).map((item: string, i: number) => item.trim() && (
+                        <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5">
+                          <span className="text-emerald-400 shrink-0 mt-0.5">•</span>{item.trim()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Weaknesses */}
+                {resumeResult.weaknesses && (
+                  <div className="p-3.5 bg-red-500/5 border border-red-500/15 rounded-xl">
+                    <h4 className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> Weaknesses
+                    </h4>
+                    <ul className="space-y-1">
+                      {(Array.isArray(resumeResult.weaknesses)
+                        ? resumeResult.weaknesses
+                        : String(resumeResult.weaknesses).split(/[•\n]+/)
+                      ).map((item: string, i: number) => item.trim() && (
+                        <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5">
+                          <span className="text-red-400 shrink-0 mt-0.5">•</span>{item.trim()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Suggestions */}
+                {resumeResult.suggestions && (
+                  <div className="p-3.5 bg-blue-500/5 border border-blue-500/15 rounded-xl">
+                    <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" /> Suggestions
+                    </h4>
+                    <ul className="space-y-1">
+                      {(Array.isArray(resumeResult.suggestions)
+                        ? resumeResult.suggestions
+                        : String(resumeResult.suggestions).split(/[•\n]+/)
+                      ).map((item: string, i: number) => item.trim() && (
+                        <li key={i} className="text-xs text-gray-300 flex items-start gap-1.5">
+                          <span className="text-blue-400 shrink-0 mt-0.5">→</span>{item.trim()}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </motion.div>
             )}
           </motion.div>
@@ -409,11 +680,15 @@ export default function AIToolsPage() {
                 {mentorMessages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
                     <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${
-                      msg.role === 'user' 
-                      ? 'bg-blue-600 text-white rounded-br-none' 
+                      msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-none'
                       : 'bg-white/5 border border-white/10 text-gray-200 rounded-bl-none'
                     }`}>
-                      {msg.content}
+                      {msg.role === 'user' ? (
+                        <span className="text-sm leading-relaxed">{msg.content}</span>
+                      ) : (
+                        <MarkdownMessage content={msg.content} />
+                      )}
                     </div>
                   </div>
                 ))}

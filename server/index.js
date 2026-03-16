@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import pdf from 'pdf-parse';
 import mammoth from 'mammoth';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 
 dotenv.config();
 
@@ -14,52 +14,68 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// Initialize Groq
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Helper for Groq Chat
+async function getGroqChatResponse(messages, systemPrompt = "") {
+  try {
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages
+      ],
+      model: "llama-3.3-70b-versatile",
+    });
+    return chatCompletion.choices[0]?.message?.content || "";
+  } catch (error) {
+    console.error("Groq API Error:", error);
+    throw error;
+  }
+}
+
 // ─── 1. AI Coding Mentor ─────────────────────────────
-app.post('/api/mentor', async (req, res) => {
+app.post('/api/ai-mentor', async (req, res) => {
   const { messages } = req.body;
   try {
-    const chat = model.startChat({
-      history: messages.slice(0, -1).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }],
-      })),
-      generationConfig: {
-        maxOutputTokens: 1000,
-      },
-    });
-
-    const prompt = "Act as a coding mentor that explains concepts clearly and provides example code when needed. Supported topics: Python, Java, C++, JavaScript, Data Structures, Algorithms, Web Development. User question: " + messages[messages.length - 1].content;
+    const systemPrompt = "Act as a coding mentor that explains concepts clearly and provides example code when needed. Supported topics: Python, Java, C++, JavaScript, Data Structures, Algorithms, Web Development. Provide a detailed explanation, example code if applicable, and a beginner-friendly summary.";
     
-    const result = await chat.sendMessage(prompt);
-    const response = await result.response;
-    res.json({ response: response.text() });
+    // Format messages for Groq (ensure proper roles)
+    const formattedMessages = messages.map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content
+    }));
+
+    const response = await getGroqChatResponse(formattedMessages, systemPrompt);
+    res.json({ response });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'AI Mentor failed to respond' });
   }
 });
 
+// Alias for old frontend compatibility if needed
+app.post('/api/mentor', (req, res) => res.redirect(307, '/api/ai-mentor'));
+
 // ─── 2. AI Code Debugger ─────────────────────────────
-app.post('/api/debug', async (req, res) => {
+app.post('/api/debug-code', async (req, res) => {
   const { code, language } = req.body;
   try {
     const prompt = `You are an expert AI Code Debugger. Analyze the provided ${language} code. 
     Detect errors, explain the problem, provide corrected code, and give optimization suggestions.
     Format your response strictly as a JSON object with these keys: errorExplanation, fixedCode, improvementSuggestions.
+    Return ONLY valid JSON.
     Code:
     ${code}`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    // Gemini sometimes wraps JSON in markdown blocks
-    const jsonStr = text.replace(/```json|```/g, '').trim();
+    const response = await getGroqChatResponse([{ role: "user", content: prompt }]);
+    
+    // Clean JSON from markdown if present
+    const jsonStr = response.replace(/```json|```/g, '').trim();
     res.json(JSON.parse(jsonStr));
   } catch (error) {
     console.error(error);
@@ -67,37 +83,38 @@ app.post('/api/debug', async (req, res) => {
   }
 });
 
+app.post('/api/debug', (req, res) => res.redirect(307, '/api/debug-code'));
+
 // ─── 3. AI Code Explainer ────────────────────────────
-app.post('/api/explain', async (req, res) => {
+app.post('/api/explain-code', async (req, res) => {
   const { code } = req.body;
   try {
     const prompt = `You are an AI Code Explainer. Provide: 1. Overview of the code, 2. Line-by-line explanation, 3. Beginner-friendly explanation. Use Markdown.
     Code:
     ${code}`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    res.json({ explanation: response.text() });
+    const response = await getGroqChatResponse([{ role: "user", content: prompt }]);
+    res.json({ explanation: response });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Explanation failed' });
   }
 });
 
+app.post('/api/explain', (req, res) => res.redirect(307, '/api/explain-code'));
+
 // ─── 4. Learning Roadmap Generator ───────────────────
-app.post('/api/roadmap', async (req, res) => {
+app.post('/api/generate-roadmap', async (req, res) => {
   const { goal, skillLevel } = req.body;
   try {
     const prompt = `You are a Learning Roadmap Generator. Generate a structured roadmap for a student. 
     Goal: ${goal}, Skill Level: ${skillLevel}. 
     Include: Learning Stages, Topics to study, Suggested projects, Recommended tools. 
-    Format your response strictly as a JSON object with these keys as sections.
+    Format your response strictly as a JSON object with these keys as sections: LearningStages, TopicsToStudy, SuggestedProjects, RecommendedTools.
     Return ONLY the JSON.`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonStr = text.replace(/```json|```/g, '').trim();
+    const response = await getGroqChatResponse([{ role: "user", content: prompt }]);
+    const jsonStr = response.replace(/```json|```/g, '').trim();
     res.json(JSON.parse(jsonStr));
   } catch (error) {
     console.error(error);
@@ -105,8 +122,10 @@ app.post('/api/roadmap', async (req, res) => {
   }
 });
 
+app.post('/api/roadmap', (req, res) => res.redirect(307, '/api/generate-roadmap'));
+
 // ─── 5. Resume Analyzer ──────────────────────────────
-app.post('/api/resume-analyze', upload.single('resume'), async (req, res) => {
+app.post('/api/analyze-resume', upload.single('resume'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   let text = '';
@@ -117,6 +136,8 @@ app.post('/api/resume-analyze', upload.single('resume'), async (req, res) => {
     } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       const result = await mammoth.extractRawText({ buffer: req.file.buffer });
       text = result.value;
+    } else if (req.file.mimetype === 'text/plain') {
+      text = req.file.buffer.toString();
     } else {
       return res.status(400).json({ error: 'Unsupported file format' });
     }
@@ -131,10 +152,8 @@ app.post('/api/resume-analyze', upload.single('resume'), async (req, res) => {
     Resume Text:
     ${text}`;
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const resultText = response.text();
-    const jsonStr = resultText.replace(/```json|```/g, '').trim();
+    const response = await getGroqChatResponse([{ role: "user", content: prompt }]);
+    const jsonStr = response.replace(/```json|```/g, '').trim();
     res.json(JSON.parse(jsonStr));
   } catch (error) {
     console.error(error);
@@ -142,6 +161,8 @@ app.post('/api/resume-analyze', upload.single('resume'), async (req, res) => {
   }
 });
 
+app.post('/api/resume-analyze', (req, res) => res.redirect(307, '/api/analyze-resume'));
+
 app.listen(port, () => {
-  console.log(`AI Server running on http://localhost:${port} using Gemini API`);
+  console.log(`AI Server running on http://localhost:${port} using Groq API`);
 });
