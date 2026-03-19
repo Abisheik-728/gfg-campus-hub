@@ -5,56 +5,9 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* Light mode — crisp off-white editorial */
-    --background: 220 20% 97%;
-    --foreground: 220 25% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 220 25% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 25% 10%;
-    --primary: 142 71% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 15% 93%;
-    --secondary-foreground: 220 25% 20%;
-    --muted: 220 15% 93%;
-    --muted-foreground: 220 10% 48%;
-    --accent: 142 71% 42%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 88%;
-    --input: 220 13% 88%;
-    --ring: 142 71% 42%;
-    --radius: 0.625rem;
-
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 142 71% 42%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 142 71% 42%;
-
-    /* Custom tokens */
-    --gfg-green: 142 71% 42%;
-    --gfg-green-light: 142 60% 95%;
-    --gfg-amber: 38 92% 50%;
-    --gfg-gold: 45 93% 47%;
-    --gfg-silver: 210 7% 56%;
-    --gfg-bronze: 30 64% 43%;
-    --surface: 0 0% 100%;
-    --surface-hover: 220 15% 93%;
-    --surface-raised: 0 0% 100%;
-
-    /* Glow */
-    --glow-primary: rgba(34, 197, 94, 0.18);
-    --glow-primary-strong: rgba(34, 197, 94, 0.32);
-  }
-
+  /* Dark-only theme — no light mode */
+  :root,
   .dark {
-    /* Dark mode — deep charcoal terminal */
     --background: 224 27% 8%;
     --foreground: 213 30% 94%;
     --card: 224 22% 12%;
@@ -74,16 +27,33 @@
     --border: 224 17% 19%;
     --input: 224 17% 19%;
     --ring: 142 71% 45%;
+    --radius: 0.625rem;
+
+    --sidebar-background: 224 22% 10%;
+    --sidebar-foreground: 213 30% 94%;
+    --sidebar-primary: 142 71% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 224 20% 15%;
+    --sidebar-accent-foreground: 213 30% 94%;
+    --sidebar-border: 224 17% 19%;
+    --sidebar-ring: 142 71% 45%;
+
+    /* Custom tokens */
+    --gfg-green: 142 71% 45%;
+    --gfg-green-light: 142 71% 15%;
+    --gfg-amber: 38 92% 50%;
+    --gfg-gold: 45 93% 47%;
+    --gfg-silver: 210 7% 56%;
+    --gfg-bronze: 30 64% 43%;
     --surface: 224 22% 12%;
     --surface-hover: 224 20% 15%;
     --surface-raised: 224 18% 16%;
 
-    --gfg-green: 142 71% 45%;
-    --gfg-green-light: 142 71% 15%;
     --glow-primary: rgba(74, 222, 128, 0.15);
     --glow-primary-strong: rgba(74, 222, 128, 0.28);
   }
 }
+
 
 @layer base {
   * {

@@ -1,15 +1,39 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { Student, students as mockStudents, saveRegisteredUser, getRegisteredPasswords } from "@/data/mockData";
+// ─────────────────────────────────────────────────────────────
+//  AuthContext — Firebase Authentication + Firestore
+//  Fixed: name "User" race condition in signup & login
+// ─────────────────────────────────────────────────────────────
 
-const SESSION_KEY = "gfg_current_user";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseUser,
+  updateProfile,
+} from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { getUserProfile, saveUserProfile, FirestoreUser } from "@/lib/firestoreService";
+
+// ── Types ────────────────────────────────────────────────────
+
+export type AppUser = FirestoreUser;
 
 interface AuthContextType {
-  user: Student | null;
-  login: (email: string, password: string) => { success: boolean; message: string };
-  loginWithGoogle: (userData: { email: string, name: string, picture: string }) => void;
-  signup: (data: { name: string; email: string; department: string; year: number; password: string }) => { success: boolean; message: string };
-  logout: () => void;
+  user: AppUser | null;
+  firebaseUser: FirebaseUser | null;
+  isLoading: boolean;
   isAdmin: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; message: string }>;
+  signup: (data: {
+    name: string;
+    email: string;
+    password: string;
+    department: string;
+    year: number;
+  }) => Promise<{ success: boolean; message: string }>;
+  logout: () => Promise<void>;
+  loginWithGoogle: (userData: { email: string; name: string; picture: string }) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -20,122 +44,210 @@ export const useAuth = () => {
   return ctx;
 };
 
-// Load persisted user session from localStorage
-function loadSession(): Student | null {
+// ── Session cache (survives refresh, cleared on tab close) ───
+const CACHE_KEY = "gfg_user_cache";
+
+function loadCache(): AppUser | null {
   try {
-    const stored = localStorage.getItem(SESSION_KEY);
-    if (!stored) return null;
-    const parsed: Student = JSON.parse(stored);
-    // Verify the user still exists in the students array
-    const found = mockStudents.find((s) => s.email === parsed.email);
-    return found || null;
-  } catch {
-    return null;
-  }
+    const s = sessionStorage.getItem(CACHE_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+function saveCache(u: AppUser | null) {
+  if (u) sessionStorage.setItem(CACHE_KEY, JSON.stringify(u));
+  else sessionStorage.removeItem(CACHE_KEY);
 }
 
+// ── Helper: best display name from available sources ─────────
+function resolveName(
+  fbDisplayName: string | null,
+  email: string | null,
+  firestoreName?: string
+): string {
+  // Prefer Firestore name if it's real (not the "User" placeholder)
+  if (firestoreName && firestoreName !== "User") return firestoreName;
+  // Use Firebase Auth display name
+  if (fbDisplayName && fbDisplayName.trim()) return fbDisplayName.trim();
+  // Derive from email prefix
+  if (email) return email.split("@")[0];
+  return "User";
+}
+
+// ── Provider ─────────────────────────────────────────────────
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<Student | null>(() => loadSession());
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AppUser | null>(loadCache);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Persist user session whenever it changes
+  // Ref to carry the freshly-built profile from signup()
+  // so onAuthStateChanged can use it instead of the stale Firebase state
+  const pendingProfileRef = useRef<AppUser | null>(null);
+
+  // ── Listen to Firebase Auth state ──────────────────────────
   useEffect(() => {
-    if (user) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(SESSION_KEY);
-    }
-  }, [user]);
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
 
-  const login = (email: string, password: string) => {
-    // Admin login
-    if (email === "admin@gfgclub.com" && password === "admin123") {
-      const admin = mockStudents.find((s) => s.role === "admin")!;
-      setUser(admin);
-      return { success: true, message: "Welcome, Admin!" };
-    }
-
-    // Check if this is a registered user (signed up via the app)
-    const registeredPasswords = getRegisteredPasswords();
-    if (registeredPasswords[email]) {
-      if (registeredPasswords[email] === password) {
-        const student = mockStudents.find((s) => s.email === email && s.role === "student");
-        if (student) {
-          setUser(student);
-          return { success: true, message: `Welcome, ${student.name}!` };
-        }
+      if (!fbUser) {
+        setUser(null);
+        saveCache(null);
+        setIsLoading(false);
+        return;
       }
-      return { success: false, message: "Incorrect email or password" };
-    }
 
-    // Fallback: mock students can log in with any password
-    const student = mockStudents.find((s) => s.email === email && s.role === "student");
-    if (student) {
-      setUser(student);
-      return { success: true, message: `Welcome, ${student.name}!` };
-    }
+      // ── If signup() already built the profile, use it directly ──
+      if (pendingProfileRef.current && pendingProfileRef.current.uid === fbUser.uid) {
+        const profile = pendingProfileRef.current;
+        pendingProfileRef.current = null;
+        setUser(profile);
+        saveCache(profile);
+        setIsLoading(false);
+        return;
+      }
 
-    return { success: false, message: "Incorrect email or password" };
+      // ── Otherwise, fetch from Firestore ─────────────────────
+      try {
+        const profile = await getUserProfile(fbUser.uid);
+
+        if (profile) {
+          // Fix: heal any profile where name is still the "User" placeholder
+          const resolvedName = resolveName(fbUser.displayName, fbUser.email, profile.name);
+          if (resolvedName !== profile.name) {
+            profile.name = resolvedName;
+            // Silently fix in Firestore so it doesn't happen again
+            await saveUserProfile(fbUser.uid, { name: resolvedName });
+          }
+          setUser(profile);
+          saveCache(profile);
+        } else {
+          // No Firestore doc yet — create one with the best name we have
+          const name = resolveName(fbUser.displayName, fbUser.email);
+          const fallback: AppUser = {
+            uid: fbUser.uid,
+            name,
+            email: fbUser.email || "",
+            role: "student",
+            department: "General",
+            year: 1,
+            problemsSolved: 0,
+            codingPoints: 0,
+            codingStreak: 0,
+            eventsJoined: 0,
+            achievements: [],
+            avatar: name[0].toUpperCase(),
+          };
+          await saveUserProfile(fbUser.uid, fallback);
+          setUser(fallback);
+          saveCache(fallback);
+        }
+      } catch {
+        // Firestore unavailable — use session cache if uid matches
+        const cached = loadCache();
+        if (cached && cached.uid === fbUser.uid) setUser(cached);
+      }
+
+      setIsLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // ── Login ─────────────────────────────────────────────────
+  const login = async (email: string, password: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will call getUserProfile → sets real name
+      return { success: true, message: "Logged in successfully!" };
+    } catch (err: any) {
+      const msg =
+        err.code === "auth/user-not-found"         ? "No account found with this email." :
+        err.code === "auth/wrong-password"         ? "Incorrect password." :
+        err.code === "auth/invalid-credential"     ? "Incorrect email or password." :
+        err.code === "auth/too-many-requests"      ? "Too many attempts. Try again later." :
+        err.code === "auth/network-request-failed" ? "Network error. Check your connection." :
+        "Login failed. Please try again.";
+      return { success: false, message: msg };
+    }
   };
 
-  const loginWithGoogle = (userData: { email: string, name: string, picture: string }) => {
-    // Check if user exists
-    let student = mockStudents.find((s) => s.email === userData.email);
-    
-    // Auto-signup if not found
-    if (!student) {
-      student = {
-        id: String(Date.now()),
-        name: userData.name,
-        email: userData.email,
-        department: "General", // Default for Google Sign In
-        year: 1, // Default
+  // ── Signup ────────────────────────────────────────────────
+  const signup = async (data: {
+    name: string; email: string; password: string; department: string; year: number;
+  }) => {
+    try {
+      // Create Firebase Auth account
+      const cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
+      const uid = cred.user.uid;
+
+      // Build the complete profile with the real name
+      const profile: AppUser = {
+        uid,
+        name: data.name.trim(),
+        email: data.email,
+        role: "student",
+        department: data.department,
+        year: data.year,
         problemsSolved: 0,
         codingPoints: 0,
         codingStreak: 0,
         eventsJoined: 0,
         achievements: [],
-        role: "student",
-        avatar: userData.name[0].toUpperCase(),
+        avatar: data.name.trim()[0].toUpperCase(),
       };
-      // Add to in-memory array
-      mockStudents.push(student);
-      // Persist them with a dummy password since they use Google
-      saveRegisteredUser(student, "google-auth-auto-generated"); 
+
+      // Store in the ref BEFORE async calls so onAuthStateChanged
+      // (which may have already fired) can see it on next check
+      pendingProfileRef.current = profile;
+
+      // Set Firebase Auth display name
+      await updateProfile(cred.user, { displayName: data.name.trim() });
+
+      // Save to Firestore
+      await saveUserProfile(uid, profile);
+
+      // Directly update state — overrides any "User" that onAuthStateChanged
+      // may have already set during the race window
+      setUser(profile);
+      saveCache(profile);
+      pendingProfileRef.current = null;
+
+      return { success: true, message: `Welcome, ${data.name}! Account created.` };
+    } catch (err: any) {
+      pendingProfileRef.current = null;
+      const msg =
+        err.code === "auth/email-already-in-use"   ? "An account with this email already exists." :
+        err.code === "auth/weak-password"           ? "Password should be at least 6 characters." :
+        err.code === "auth/invalid-email"           ? "Invalid email address." :
+        err.code === "auth/network-request-failed"  ? "Network error. Check your connection." :
+        "Signup failed. Please try again.";
+      return { success: false, message: msg };
     }
-    
-    setUser(student);
   };
 
-  const signup = (data: { name: string; email: string; department: string; year: number; password: string }) => {
-    if (mockStudents.find((s) => s.email === data.email)) {
-      return { success: false, message: "Email already registered" };
-    }
-    const newStudent: Student = {
-      id: String(Date.now()), // Use timestamp for unique IDs
-      name: data.name,
-      email: data.email,
-      department: data.department,
-      year: data.year,
-      problemsSolved: 0,
-      codingPoints: 0,
-      codingStreak: 0,
-      eventsJoined: 0,
-      achievements: [],
-      role: "student",
-      avatar: data.name[0].toUpperCase(),
-    };
-    // Add to in-memory array
-    mockStudents.push(newStudent);
-    // Persist to localStorage so it survives refresh
-    saveRegisteredUser(newStudent, data.password);
-    setUser(newStudent);
-    return { success: true, message: "Account created successfully!" };
+  // ── Google bridge ─────────────────────────────────────────
+  const loginWithGoogle = (_userData: { email: string; name: string; picture: string }) => {
+    // onAuthStateChanged handles Google sign-in automatically
   };
 
-  const logout = () => setUser(null);
+  // ── Logout ────────────────────────────────────────────────
+  const logout = async () => {
+    await signOut(auth);
+    saveCache(null);
+    pendingProfileRef.current = null;
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, loginWithGoogle, signup, logout, isAdmin: user?.role === "admin" }}>
+    <AuthContext.Provider value={{
+      user,
+      firebaseUser,
+      isLoading,
+      isAdmin: user?.role === "admin",
+      login,
+      signup,
+      logout,
+      loginWithGoogle,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -5,7 +5,7 @@ import {
   ChevronRight, BookMarked, User as UserIcon, MapPin, GraduationCap,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { getIssuedCertificates, getUserProgress } from "@/data/learningData";
+import { getIssuedCertificates, getUserProgress, Certificate } from "@/data/learningData";
 import { getXPData, getStreakData } from "@/data/xpSystem";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -31,15 +31,36 @@ function getLibraryStats() {
   }
 }
 
+/** Deduplicate certificates by certificateId AND courseName to prevent showing the same course twice */
+function deduplicateCerts(certs: Certificate[]): Certificate[] {
+  const seenIds = new Set<string>();
+  const seenCourses = new Set<string>();
+  return certs.filter((c) => {
+    if (seenIds.has(c.certificateId) || seenCourses.has(c.courseName)) return false;
+    seenIds.add(c.certificateId);
+    seenCourses.add(c.courseName);
+    return true;
+  });
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   if (!user) return null;
 
-  const certificates = getIssuedCertificates();
+  const rawCertificates = getIssuedCertificates();
+  const certificates = deduplicateCerts(rawCertificates);  // fix: remove duplicates
   const learningProgress = getUserProgress();
   const libStats = getLibraryStats();
   const xpData = getXPData();
   const streakData = getStreakData();
+
+  const isAdmin = user.role === "admin";
+
+  // Resolve the best available display name
+  const displayName =
+    user.name && user.name !== "User"
+      ? user.name
+      : user.email?.split("@")[0] || "User";
 
   const progressData = [
     { name: "DSA", value: 45 },
@@ -47,6 +68,9 @@ export default function DashboardPage() {
     { name: "CP", value: 20 },
     { name: "Other", value: 10 },
   ];
+
+  // Only show the distribution chart if the user has solved at least one problem
+  const hasSolvedProblems = user.problemsSolved > 0;
 
   const stats = [
     { icon: Sparkles, label: "XP Points", value: xpData.totalXP, accent: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
@@ -79,7 +103,7 @@ export default function DashboardPage() {
             {/* Avatar */}
             <div className="relative shrink-0">
               <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-2xl bg-gradient-to-br from-primary via-emerald-400 to-teal-500 flex items-center justify-center text-3xl font-extrabold text-white shadow-glow-md">
-                {user.name[0]}
+                {displayName[0].toUpperCase()}
               </div>
               <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-primary border-2 border-background flex items-center justify-center">
                 <UserIcon className="h-3 w-3 text-white" />
@@ -89,25 +113,36 @@ export default function DashboardPage() {
             {/* Info */}
             <div className="flex-1 text-center sm:text-left">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted border border-border text-xs font-semibold text-muted-foreground mb-3">
-                <UserIcon className="h-3 w-3" /> Student Profile
+                <UserIcon className="h-3 w-3" /> {isAdmin ? "Administrator" : "Student Profile"}
               </div>
-              <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight mb-1">{user.name}</h1>
+              <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight mb-1">{displayName}</h1>
               <p className="text-sm text-muted-foreground mb-3">{user.email}</p>
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
                 <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold uppercase tracking-wide">
                   <GraduationCap className="h-3 w-3" /> {user.department}
                 </span>
-                <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-bold uppercase tracking-wide">
-                  <MapPin className="h-3 w-3" /> Year {user.year}
-                </span>
+                {/* Only show Year for non-admin users with a valid year */}
+                {!isAdmin && user.year > 0 && (
+                  <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20 text-xs font-bold uppercase tracking-wide">
+                    <MapPin className="h-3 w-3" /> Year {user.year}
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Points */}
             <div className="shrink-0 text-center sm:text-right">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Points</p>
-              <p className="font-display text-4xl sm:text-5xl font-black text-gradient-gold leading-none">{user.codingPoints}</p>
-              <p className="text-xs font-bold text-amber-500 uppercase tracking-widest mt-2">Global Rank: #42</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+                {isAdmin ? "Admin Account" : "Total Points"}
+              </p>
+              {isAdmin ? (
+                <p className="font-display text-2xl sm:text-3xl font-black text-primary leading-none">⚙ Admin</p>
+              ) : (
+                <>
+                  <p className="font-display text-4xl sm:text-5xl font-black text-gradient-gold leading-none tabular-nums">{user.codingPoints}</p>
+                  <p className="text-xs font-bold text-amber-500 uppercase tracking-widest mt-2">Global Rank: #42</p>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
@@ -126,7 +161,7 @@ export default function DashboardPage() {
               <div className={`h-11 w-11 rounded-xl ${stat.bg} flex items-center justify-center mb-3`}>
                 <stat.icon className={`w-5 h-5 ${stat.accent}`} />
               </div>
-              <div className={`font-display text-3xl font-black ${stat.accent} mb-1`}>{stat.value}</div>
+              <div className={`font-display text-3xl font-black tabular-nums ${stat.accent} mb-1`}>{stat.value}</div>
               <div className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{stat.label}</div>
             </motion.div>
           ))}
@@ -174,42 +209,59 @@ export default function DashboardPage() {
               <Star className="h-4 w-4 text-amber-500" />
               Problem Solving Distribution
             </h3>
-            <div className="h-56 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={progressData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={98}
-                    paddingAngle={4}
-                    dataKey="value"
-                    stroke="none"
-                  >
-                    {progressData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "12px", fontSize: "12px" }}
-                    itemStyle={{ color: "hsl(var(--foreground))" }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Center text */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="font-display text-3xl font-black text-foreground">{user.problemsSolved}</span>
-                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mt-0.5">Total Solved</span>
-              </div>
-            </div>
-            {/* Legend */}
-            <div className="flex flex-wrap gap-2.5 justify-center mt-5">
-              {progressData.map((d, i) => (
-                <div key={d.name} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground px-2.5 py-1.5 bg-muted/50 rounded-full border border-border/60">
-                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                  {d.name} <span className="text-muted-foreground/60 ml-0.5">{d.value}%</span>
+            {hasSolvedProblems ? (
+              <>
+                <div className="h-56 relative">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={progressData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={98}
+                        paddingAngle={4}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {progressData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "12px", fontSize: "12px" }}
+                        itemStyle={{ color: "hsl(var(--foreground))" }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Center text */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-3xl font-black text-foreground tabular-nums leading-none">{user.problemsSolved}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mt-1">Total Solved</span>
+                  </div>
                 </div>
-              ))}
-            </div>
+                {/* Legend */}
+                <div className="flex flex-wrap gap-2.5 justify-center mt-5">
+                  {progressData.map((d, i) => (
+                    <div key={d.name} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground px-2.5 py-1.5 bg-muted/50 rounded-full border border-border/60">
+                      <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                      {d.name} <span className="text-muted-foreground/60 ml-0.5">{d.value}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              /* Empty state when no problems solved yet */
+              <div className="h-56 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-2xl text-center">
+                <Code className="w-10 h-10 text-muted-foreground/40 mb-3" />
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Start solving problems to see your distribution chart!
+                </p>
+                <Link to="/practice">
+                  <Button variant="outline" size="sm" className="mt-4 text-primary border-primary/30 hover:bg-primary/10">
+                    Practice Now
+                  </Button>
+                </Link>
+              </div>
+            )}
           </motion.div>
 
           {/* Achievements */}
@@ -230,7 +282,7 @@ export default function DashboardPage() {
                 <>
                   {certificates.slice(0, 2).map((cert, i) => (
                     <Link
-                      key={`cert-${i}`}
+                      key={`cert-${cert.certificateId}`}
                       to="/learn-dashboard"
                       className="flex items-center gap-3.5 p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/20 hover:border-amber-500/40 hover:bg-amber-500/10 transition-all group"
                     >
@@ -245,7 +297,7 @@ export default function DashboardPage() {
                     </Link>
                   ))}
                   {user.achievements.slice(0, 3).map((a, i) => (
-                    <div key={i} className="flex items-center gap-3.5 p-3.5 rounded-xl bg-muted/50 border border-border/60 hover:bg-muted transition-colors">
+                    <div key={`ach-${i}-${a}`} className="flex items-center gap-3.5 p-3.5 rounded-xl bg-muted/50 border border-border/60 hover:bg-muted transition-colors">
                       <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-lg border border-primary/20 shrink-0">🏆</div>
                       <span className="text-sm font-medium text-foreground">{a}</span>
                     </div>

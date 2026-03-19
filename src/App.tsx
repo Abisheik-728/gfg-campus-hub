@@ -34,60 +34,88 @@ import { ReactNode } from "react";
 
 const queryClient = new QueryClient();
 
-/* Route guard – redirects to /login if user is not authenticated */
+/** Wait for auth hydration, then require login */
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  if (isLoading) return null;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
-/* Public route – redirect already-logged-in users away from public pages */
+/** Wait for auth hydration, then require admin role */
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "admin") return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+/** Wait for auth hydration, then block admin from student-only routes */
+function StudentRoute({ children }: { children: ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role === "admin") return <Navigate to="/admin" replace />;
+  return <>{children}</>;
+}
+
+/** Redirect logged-in users away from login page */
 function PublicRoute({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+  if (isLoading) return null;
   if (user) return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
   return <>{children}</>;
 }
 
-const AppRoutes = () => (
-  <>
-    <Navbar />
-    <Routes>
-      {/* Home is public — accessible without login */}
-      <Route path="/" element={<HomePage />} />
-      <Route path="/home" element={<Navigate to="/" replace />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
-      <Route path="/resources" element={<ProtectedRoute><ResourcesPage /></ProtectedRoute>} />
-      <Route path="/challenges" element={<ProtectedRoute><ChallengesPage /></ProtectedRoute>} />
-      <Route path="/leaderboard" element={<ProtectedRoute><LeaderboardPage /></ProtectedRoute>} />
-      <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
-      <Route path="/blog" element={<ProtectedRoute><BlogPage /></ProtectedRoute>} />
-      <Route path="/ai-tools" element={<ProtectedRoute><AIToolsPage /></ProtectedRoute>} />
-      <Route path="/contact" element={<ProtectedRoute><ContactPage /></ProtectedRoute>} />
+const AppRoutes = () => {
+  const { user, isLoading } = useAuth();
+  const isAdmin = !isLoading && user?.role === "admin";
 
-      {/* Protected routes — require login */}
-      <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-      <Route path="/blog/:blogId" element={<ProtectedRoute><BlogArticlePage /></ProtectedRoute>} />
-      <Route path="/learn" element={<ProtectedRoute><LearnPage /></ProtectedRoute>} />
-      <Route path="/learn/:pathId" element={<ProtectedRoute><LearningTopicPage /></ProtectedRoute>} />
-      <Route path="/learn/:pathId/:topicId" element={<ProtectedRoute><LearningTopicPage /></ProtectedRoute>} />
-      <Route path="/learn-dashboard" element={<ProtectedRoute><LearningDashboardPage /></ProtectedRoute>} />
-      <Route path="/practice" element={<ProtectedRoute><PracticeCodingPage /></ProtectedRoute>} />
-      <Route path="/certificate/:pathId" element={<ProtectedRoute><CertificatePage /></ProtectedRoute>} />
-      <Route path="/certificate/verify" element={<ProtectedRoute><CertificateVerificationPage /></ProtectedRoute>} />
-      <Route path="/certificate/verify/:certId" element={<ProtectedRoute><CertificateVerificationPage /></ProtectedRoute>} />
-      <Route path="/editor/:problemId?" element={<ProtectedRoute><CodingEditorPage /></ProtectedRoute>} />
-      <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
-      <Route path="/problem-library" element={<ProtectedRoute><ProblemLibraryPage /></ProtectedRoute>} />
+  return (
+    <>
+      <Navbar />
+      <Routes>
+        {/* Always public */}
+        <Route path="/" element={<HomePage />} />
+        <Route path="/home" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
 
-      <Route path="*" element={<NotFound />} />
-    </Routes>
-    <Footer />
-  </>
-);
+        {/* Student-only routes */}
+        <Route path="/dashboard"      element={<StudentRoute><DashboardPage /></StudentRoute>} />
+        <Route path="/events"         element={<StudentRoute><EventsPage /></StudentRoute>} />
+        <Route path="/resources"      element={<StudentRoute><ResourcesPage /></StudentRoute>} />
+        <Route path="/challenges"     element={<StudentRoute><ChallengesPage /></StudentRoute>} />
+        <Route path="/leaderboard"    element={<StudentRoute><LeaderboardPage /></StudentRoute>} />
+        <Route path="/team"           element={<StudentRoute><TeamPage /></StudentRoute>} />
+        <Route path="/blog"           element={<StudentRoute><BlogPage /></StudentRoute>} />
+        <Route path="/blog/:blogId"   element={<StudentRoute><BlogArticlePage /></StudentRoute>} />
+        <Route path="/ai-tools"       element={<StudentRoute><AIToolsPage /></StudentRoute>} />
+        <Route path="/contact"        element={<StudentRoute><ContactPage /></StudentRoute>} />
+        <Route path="/learn"          element={<StudentRoute><LearnPage /></StudentRoute>} />
+        <Route path="/learn/:pathId"  element={<StudentRoute><LearningTopicPage /></StudentRoute>} />
+        <Route path="/learn/:pathId/:topicId" element={<StudentRoute><LearningTopicPage /></StudentRoute>} />
+        <Route path="/learn-dashboard"  element={<StudentRoute><LearningDashboardPage /></StudentRoute>} />
+        <Route path="/practice"       element={<StudentRoute><PracticeCodingPage /></StudentRoute>} />
+        <Route path="/certificate/:pathId" element={<StudentRoute><CertificatePage /></StudentRoute>} />
+        <Route path="/certificate/verify" element={<ProtectedRoute><CertificateVerificationPage /></ProtectedRoute>} />
+        <Route path="/certificate/verify/:certId" element={<ProtectedRoute><CertificateVerificationPage /></ProtectedRoute>} />
+        <Route path="/editor/:problemId?" element={<StudentRoute><CodingEditorPage /></StudentRoute>} />
+        <Route path="/problem-library"  element={<StudentRoute><ProblemLibraryPage /></StudentRoute>} />
+
+        {/* Admin-only route */}
+        <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+      {/* Footer is hidden inside the Admin panel area — Admin page has its own layout */}
+      {!isAdmin && <Footer />}
+    </>
+  );
+};
 
 const App = () => (
-  <ThemeProvider defaultTheme="light" storageKey="gfg-theme">
+  <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />

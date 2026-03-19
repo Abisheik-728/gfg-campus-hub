@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const { login, signup, user, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [isSignup, setIsSignup] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", department: "", year: "1", password: "" });
 
   const handleGoogleSuccess = (credentialResponse: CredentialResponse) => {
@@ -36,34 +37,41 @@ export default function LoginPage() {
   };
 
   if (user) {
-    navigate(user.role === "admin" ? "/admin" : "/dashboard");
-    return null;
+    return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} replace />;
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSignup) {
-      const res = signup({ 
-        name: form.name, 
-        email: form.email, 
-        department: form.department, 
-        year: parseInt(form.year), 
-        password: form.password 
-      });
-      if (res.success) { 
-        toast.success(res.message); 
-        navigate("/dashboard"); 
+    setSubmitting(true);
+    try {
+      if (isSignup) {
+        const res = await signup({
+          name: form.name,
+          email: form.email,
+          department: form.department,
+          year: parseInt(form.year),
+          password: form.password,
+        });
+        if (res.success) {
+          toast.success(res.message);
+          navigate("/dashboard");
+        } else {
+          toast.error(res.message);
+        }
       } else {
-        toast.error(res.message);
+        const res = await login(form.email, form.password);
+        if (res.success) {
+          toast.success(res.message);
+          // Navigate based on the auth state — user will be set by onAuthStateChanged
+          // We navigate to admin if the email matches, otherwise dashboard
+          // The actual role-redirect also happens via PublicRoute once user is set
+          navigate(form.email === "admin@gfgclub.com" ? "/admin" : "/dashboard");
+        } else {
+          toast.error(res.message);
+        }
       }
-    } else {
-      const res = login(form.email, form.password);
-      if (res.success) { 
-        toast.success(res.message); 
-        navigate(form.email === "admin@gfgclub.com" ? "/admin" : "/dashboard"); 
-      } else {
-        toast.error(res.message);
-      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -137,8 +145,12 @@ export default function LoginPage() {
               className="bg-black/40 border-white/10 text-white placeholder-gray-500 focus-visible:ring-primary h-12"
             />
             
-            <Button type="submit" className="w-full h-12 bg-primary hover:bg-primary/80 font-bold text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] mt-2 transition-transform hover:-translate-y-1">
-              {isSignup ? "Start Learning" : "Login Securely"}
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="w-full h-12 bg-primary hover:bg-primary/80 font-bold text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] mt-2 transition-transform hover:-translate-y-1 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {submitting ? "Please wait..." : isSignup ? "Start Learning" : "Login Securely"}
             </Button>
           </form>
 

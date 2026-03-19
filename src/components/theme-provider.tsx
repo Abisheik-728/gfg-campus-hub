@@ -1,16 +1,9 @@
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect } from "react"
 
-type Theme = "light" | "dark"
-
-type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
-}
-
+// Theme is permanently locked to dark — no toggle
 type ThemeProviderState = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  theme: "dark"
+  setTheme: (theme: "dark") => void
 }
 
 const initialState: ThemeProviderState = {
@@ -20,32 +13,17 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
-export function ThemeProvider({
-  children,
-  defaultTheme = "dark",
-  storageKey = "gfg-ui-theme",
-  ...props
-}: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  )
-
+export function ThemeProvider({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) {
   useEffect(() => {
     const root = window.document.documentElement
-    root.classList.remove("light", "dark")
-    root.classList.add(theme)
-  }, [theme])
-
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
-    },
-  }
+    root.classList.remove("light")
+    root.classList.add("dark")
+    // Persist so any local-storage-based reader also sees dark
+    localStorage.setItem("gfg-theme", "dark")
+  }, [])
 
   return (
-    <ThemeProviderContext.Provider {...props} value={value}>
+    <ThemeProviderContext.Provider {...props} value={{ theme: "dark", setTheme: () => null }}>
       {children}
     </ThemeProviderContext.Provider>
   )

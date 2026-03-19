@@ -1,15 +1,25 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { students as mockStudents, events as mockEvents, problems as mockProblems, campusStats } from "@/data/mockData";
+import { students as mockStudents, events as mockEvents, problems as mockProblems, campusStats, Student, Event, Problem } from "@/data/mockData";
 import type { BlogPost } from "@/data/mockData";
-import { getAdminBlogs, saveAdminBlogs, defaultBlogPosts, getPublishedBlogs } from "@/data/blogData";
+import { getAdminBlogs, saveAdminBlogs, defaultBlogPosts } from "@/data/blogData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Users, Code, Calendar, BarChart3, Trophy, BookOpen, Trash2, Edit, Plus, RefreshCw, Save, X, FileText, Eye, EyeOff, Award, MessageSquare, Check, Mail } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { toast } from "sonner";
 import { getIssuedCertificates } from "@/data/learningData";
+
+import {
+  getAllStudents, createEvent as fsCreateEvent, deleteEvent as fsDeleteEvent,
+  getEvents as fsGetEvents, createProblem as fsCreateProblem,
+  deleteProblem as fsDeleteProblem, getProblems as fsGetProblems,
+  adminAddStudent, adminDeleteStudent,
+  FirestoreUser, FSEvent, FSProblem,
+} from "@/lib/firestoreService";
+
+// Legacy localStorage keys kept ONLY for blog data (not yet migrated)
 
 const COLORS = ["hsl(140,51%,36%)", "hsl(38,92%,50%)", "hsl(210,7%,56%)", "hsl(0,84%,60%)"];
 
@@ -57,27 +67,209 @@ export default function AdminPage() {
   const { user, isAdmin } = useAuth();
   const [tab, setTab] = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
-  
-  // Blog management state
+
+  // ── Blog state
   const [adminBlogs, setAdminBlogs] = useState<BlogPost[]>([]);
   const [showBlogForm, setShowBlogForm] = useState(false);
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
   const [blogForm, setBlogForm] = useState<BlogFormData>(emptyForm);
-  
-  // Support queries
+
+  // ── Support queries
   const [supportQueries, setSupportQueries] = useState<any[]>([]);
+
+  // ── Firestore state (replaces localStorage)
+  const [fsStudents,  setFsStudents]  = useState<FirestoreUser[]>([]);
+  const [fsEvents,    setFsEvents]    = useState<FSEvent[]>([]);
+  const [fsProblems,  setFsProblems]  = useState<FSProblem[]>([]);
+  const [fsLoading,   setFsLoading]   = useState(true);
 
   useEffect(() => {
     setAdminBlogs(getAdminBlogs());
     const queries = JSON.parse(localStorage.getItem("gfg_contact_queries") || "[]");
     setSupportQueries(queries);
+
+    // Fetch Firestore data
+    Promise.all([getAllStudents(), fsGetEvents(), fsGetProblems()])
+      .then(([students, events, problems]) => {
+        setFsStudents(students);
+        setFsEvents(events);
+        setFsProblems(problems);
+      })
+      .catch(() => { /* Firestore unavailable — show mock data only */ })
+      .finally(() => setFsLoading(false));
   }, []);
 
   if (!user || !isAdmin) return <Navigate to="/login" />;
 
-  const filteredStudents = mockStudents.filter(s =>
-    s.role === "student" && (s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.email.toLowerCase().includes(searchQuery.toLowerCase()))
+  // ── Merged lists (Firestore + mock fallback)
+  const allStudents = [
+    ...mockStudents.filter(s => s.role === "student"),
+    ...fsStudents.map(s => ({
+      id: s.uid, name: s.name, email: s.email,
+      department: s.department, year: s.year,
+      problemsSolved: s.problemsSolved, codingPoints: s.codingPoints,
+      codingStreak: s.codingStreak, eventsJoined: s.eventsJoined,
+      achievements: s.achievements, role: s.role, avatar: s.avatar,
+    } as Student)),
+  ];
+  const allEvents = [
+    ...mockEvents,
+    ...fsEvents.map(e => ({
+      id: e.id!, title: e.title, description: e.description,
+      date: e.date, time: e.time, location: e.location,
+      type: e.type, isPast: e.isPast, capacity: e.capacity,
+      registeredCount: e.registeredCount, organizer: e.organizer,
+      tags: e.tags, prizeMoney: e.prizeMoney,
+    } as Event)),
+  ];
+  const allProblems = [
+    ...mockProblems,
+    ...fsProblems.map(p => ({
+      id: p.id!, title: p.title, difficulty: p.difficulty,
+      description: p.description, inputFormat: p.inputFormat,
+      outputFormat: p.outputFormat, sampleInput: p.sampleInput,
+      sampleOutput: p.sampleOutput, constraints: p.constraints, testCases: [],
+    } as Problem)),
+  ];
+
+  const filteredStudents = allStudents.filter(s =>
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // ── Add Student (Firestore)
+  const [showStudentForm, setShowStudentForm] = useState(false);
+  const [studentForm, setStudentForm] = useState({ name:"", email:"", department:"", year:"1" });
+  const [studentSaving, setStudentSaving] = useState(false);
+
+  const handleAddStudent = async () => {
+    if (!studentForm.name.trim() || !studentForm.email.trim() || !studentForm.department.trim()) {
+      toast.error("Name, email and department are required!"); return;
+    }
+    setStudentSaving(true);
+    try {
+      const data: Omit<FirestoreUser, "uid" | "createdAt"> = {
+        name: studentForm.name.trim(),
+        email: studentForm.email.trim(),
+        department: studentForm.department.trim(),
+        year: parseInt(studentForm.year) || 1,
+        problemsSolved: 0, codingPoints: 0, codingStreak: 0,
+        eventsJoined: 0, achievements: [], role: "student",
+        avatar: studentForm.name[0].toUpperCase(),
+      };
+      const newId = await adminAddStudent(data);
+      setFsStudents(prev => [...prev, { uid: newId, ...data }]);
+      setStudentForm({ name:"", email:"", department:"", year:"1" });
+      setShowStudentForm(false);
+      toast.success(`Student "${data.name}" added to Firestore!`);
+    } catch {
+      toast.error("Failed to save student. Check Firestore connection.");
+    } finally {
+      setStudentSaving(false);
+    }
+  };
+
+  const handleDeleteStudent = async (uid: string) => {
+    try {
+      await adminDeleteStudent(uid);
+      setFsStudents(prev => prev.filter(s => s.uid !== uid));
+      toast.success("Student removed from Firestore!");
+    } catch {
+      toast.error("Failed to delete student.");
+    }
+  };
+
+  // ── Create Event (Firestore)
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventForm, setEventForm] = useState({ title:"", description:"", date:"", time:"10:00 AM", location:"", type:"workshop" as FSEvent["type"], capacity:"50", organizer:"", prizeMoney:"" });
+  const [eventSaving, setEventSaving] = useState(false);
+
+  const handleCreateEvent = async () => {
+    if (!eventForm.title.trim() || !eventForm.date || !eventForm.location.trim()) {
+      toast.error("Title, date and location are required!"); return;
+    }
+    setEventSaving(true);
+    try {
+      const data: Omit<FSEvent, "id"|"createdAt"> = {
+        title: eventForm.title.trim(),
+        description: eventForm.description.trim() || "No description provided.",
+        date: eventForm.date, time: eventForm.time,
+        location: eventForm.location.trim(), type: eventForm.type,
+        isPast: new Date(eventForm.date) < new Date(),
+        capacity: parseInt(eventForm.capacity) || 50,
+        registeredCount: 0,
+        organizer: eventForm.organizer.trim() || user.name || "Admin",
+        tags: [], prizeMoney: eventForm.prizeMoney.trim() || undefined,
+      };
+      const newId = await fsCreateEvent(data);
+      setFsEvents(prev => [...prev, { id: newId, ...data }]);
+      setEventForm({ title:"", description:"", date:"", time:"10:00 AM", location:"", type:"workshop", capacity:"50", organizer:"", prizeMoney:"" });
+      setShowEventForm(false);
+      toast.success(`Event "${data.title}" saved to Firestore!`);
+    } catch {
+      toast.error("Failed to save event. Check Firestore connection.");
+    } finally {
+      setEventSaving(false);
+    }
+  };
+
+  const handleDeleteEvent = async (id: string) => {
+    // Only delete if it's a Firestore event (has Firestore id)
+    const isFs = fsEvents.some(e => e.id === id);
+    if (!isFs) { toast.info("Default events cannot be deleted."); return; }
+    try {
+      await fsDeleteEvent(id);
+      setFsEvents(prev => prev.filter(e => e.id !== id));
+      toast.success("Event deleted from Firestore!");
+    } catch {
+      toast.error("Failed to delete event.");
+    }
+  };
+
+  // ── Add Problem (Firestore)
+  const [showProblemForm, setShowProblemForm] = useState(false);
+  const [problemForm, setProblemForm] = useState({ title:"", difficulty:"Easy" as FSProblem["difficulty"], description:"", inputFormat:"", outputFormat:"", sampleInput:"", sampleOutput:"", constraints:"" });
+  const [problemSaving, setProblemSaving] = useState(false);
+
+  const handleAddProblem = async () => {
+    if (!problemForm.title.trim() || !problemForm.description.trim()) {
+      toast.error("Title and description are required!"); return;
+    }
+    setProblemSaving(true);
+    try {
+      const data: Omit<FSProblem, "id"|"createdAt"> = {
+        title: problemForm.title.trim(),
+        difficulty: problemForm.difficulty,
+        description: problemForm.description.trim(),
+        inputFormat: problemForm.inputFormat.trim() || "Standard input",
+        outputFormat: problemForm.outputFormat.trim() || "Standard output",
+        sampleInput: problemForm.sampleInput.trim(),
+        sampleOutput: problemForm.sampleOutput.trim(),
+        constraints: problemForm.constraints.trim() || "1 ≤ N ≤ 10^5",
+      };
+      const newId = await fsCreateProblem(data);
+      setFsProblems(prev => [...prev, { id: newId, ...data }]);
+      setProblemForm({ title:"", difficulty:"Easy", description:"", inputFormat:"", outputFormat:"", sampleInput:"", sampleOutput:"", constraints:"" });
+      setShowProblemForm(false);
+      toast.success(`Problem "${data.title}" saved to Firestore!`);
+    } catch {
+      toast.error("Failed to save problem. Check Firestore connection.");
+    } finally {
+      setProblemSaving(false);
+    }
+  };
+
+  const handleDeleteProblem = async (id: string) => {
+    const isFs = fsProblems.some(p => p.id === id);
+    if (!isFs) { toast.info("Default problems cannot be deleted."); return; }
+    try {
+      await fsDeleteProblem(id);
+      setFsProblems(prev => prev.filter(p => p.id !== id));
+      toast.success("Problem deleted from Firestore!");
+    } catch {
+      toast.error("Failed to delete problem.");
+    }
+  };
 
   // Blog management functions
   const allBlogs = [...defaultBlogPosts, ...adminBlogs];
@@ -203,8 +395,8 @@ export default function AdminPage() {
             <h1 className="text-2xl font-bold mb-6">Dashboard Overview</h1>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {[
-                { icon: Users, label: "Total Students", value: mockStudents.filter(s => s.role === "student").length },
-                { icon: Code, label: "Total Problems", value: mockProblems.length },
+                { icon: Users, label: "Total Students", value: allStudents.length },
+                { icon: Code, label: "Total Problems", value: allProblems.length },
                 { icon: Trophy, label: "Certificates Issued", value: getIssuedCertificates().length },
                 { icon: FileText, label: "Blog Posts", value: allBlogs.length },
               ].map((s, i) => (
@@ -257,8 +449,40 @@ export default function AdminPage() {
           <div>
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <h1 className="text-2xl font-bold">Student Management</h1>
-              <Button size="sm" onClick={() => toast.info("Add student form would open here")}><Plus className="h-4 w-4 mr-1" />Add Student</Button>
+              <Button size="sm" onClick={() => setShowStudentForm(v => !v)}>
+                {showStudentForm ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                {showStudentForm ? "Cancel" : "Add Student"}
+              </Button>
             </div>
+
+            {/* ── Add Student Form ── */}
+            {showStudentForm && (
+              <div className="gfg-card mb-6 border-primary/30 bg-primary/5">
+                <h3 className="font-semibold text-base mb-4 text-primary">Add New Student</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Full Name *</label>
+                    <Input value={studentForm.name} onChange={e => setStudentForm(p => ({...p, name: e.target.value}))} placeholder="e.g. Rohit Sharma" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
+                    <Input type="email" value={studentForm.email} onChange={e => setStudentForm(p => ({...p, email: e.target.value}))} placeholder="student@college.edu" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Department *</label>
+                    <Input value={studentForm.department} onChange={e => setStudentForm(p => ({...p, department: e.target.value}))} placeholder="e.g. CSE, IT, ECE" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Year</label>
+                    <select value={studentForm.year} onChange={e => setStudentForm(p => ({...p, year: e.target.value}))} className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm">
+                      {[1,2,3,4,5].map(y => <option key={y} value={y}>Year {y}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <Button onClick={handleAddStudent} className="gap-2"><Save className="h-4 w-4" /> Save Student</Button>
+              </div>
+            )}
+
             <Input placeholder="Search students..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="mb-4 max-w-sm" />
             <div className="gfg-card overflow-hidden p-0">
               <div className="overflow-x-auto">
@@ -283,8 +507,11 @@ export default function AdminPage() {
                         <td className="p-3 text-sm font-medium">{s.codingPoints}</td>
                         <td className="p-3">
                           <div className="flex gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => toast.info(`Edit ${s.name}`)}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => toast.info(`Delete ${s.name}`)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                            {fsStudents.find(a => a.uid === s.id) ? (
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteStudent(s.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground px-2">Default</span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -300,18 +527,78 @@ export default function AdminPage() {
           <div>
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <h1 className="text-2xl font-bold">Event Management</h1>
-              <Button size="sm" onClick={() => toast.info("Create event form would open here")}><Plus className="h-4 w-4 mr-1" />Create Event</Button>
+              <Button size="sm" onClick={() => setShowEventForm(v => !v)}>
+                {showEventForm ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                {showEventForm ? "Cancel" : "Create Event"}
+              </Button>
             </div>
+
+            {/* ── Create Event Form ── */}
+            {showEventForm && (
+              <div className="gfg-card mb-6 border-primary/30 bg-primary/5">
+                <h3 className="font-semibold text-base mb-4 text-primary">Create New Event</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Event Title *</label>
+                    <Input value={eventForm.title} onChange={e => setEventForm(p => ({...p, title: e.target.value}))} placeholder="e.g. HackCampus 2026" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Date *</label>
+                    <Input type="date" value={eventForm.date} onChange={e => setEventForm(p => ({...p, date: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Time</label>
+                    <Input value={eventForm.time} onChange={e => setEventForm(p => ({...p, time: e.target.value}))} placeholder="10:00 AM" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Location *</label>
+                    <Input value={eventForm.location} onChange={e => setEventForm(p => ({...p, location: e.target.value}))} placeholder="e.g. CS Lab 301" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+                    <select value={eventForm.type} onChange={e => setEventForm(p => ({...p, type: e.target.value as Event["type"]}))} className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm">
+                      {["contest","hackathon","workshop","seminar","meetup"].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Capacity</label>
+                    <Input type="number" value={eventForm.capacity} onChange={e => setEventForm(p => ({...p, capacity: e.target.value}))} placeholder="50" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Organizer</label>
+                    <Input value={eventForm.organizer} onChange={e => setEventForm(p => ({...p, organizer: e.target.value}))} placeholder="Team / Person name" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Prize Money (optional)</label>
+                    <Input value={eventForm.prizeMoney} onChange={e => setEventForm(p => ({...p, prizeMoney: e.target.value}))} placeholder="e.g. ₹50,000" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+                    <textarea value={eventForm.description} onChange={e => setEventForm(p => ({...p, description: e.target.value}))} rows={3} placeholder="Brief description of the event..." className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm resize-y" />
+                  </div>
+                </div>
+                <Button onClick={handleCreateEvent} className="gap-2"><Save className="h-4 w-4" /> Create Event</Button>
+              </div>
+            )}
+
             <div className="space-y-3">
-              {mockEvents.map(e => (
+              {allEvents.map(e => (
                 <div key={e.id} className="gfg-card flex items-center justify-between flex-wrap gap-3">
                   <div>
-                    <h3 className="font-semibold">{e.title}</h3>
-                    <p className="text-sm text-muted-foreground">{new Date(e.date).toLocaleDateString()} • {e.location}</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">{e.title}</h3>
+                      {fsEvents.find(a => a.id === e.id) && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary font-bold">NEW</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{new Date(e.date).toLocaleDateString()} • {e.location} • {e.type}</p>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="outline" size="sm" onClick={() => toast.info(`Edit ${e.title}`)}><Edit className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => toast.info(`Delete ${e.title}`)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                    {fsEvents.find(a => a.id === e.id) ? (
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteEvent(e.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground px-2">Default</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -323,20 +610,78 @@ export default function AdminPage() {
           <div>
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <h1 className="text-2xl font-bold">Coding Problems</h1>
-              <Button size="sm" onClick={() => toast.info("Add problem form would open here")}><Plus className="h-4 w-4 mr-1" />Add Problem</Button>
+              <Button size="sm" onClick={() => setShowProblemForm(v => !v)}>
+                {showProblemForm ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                {showProblemForm ? "Cancel" : "Add Problem"}
+              </Button>
             </div>
+
+            {/* ── Add Problem Form ── */}
+            {showProblemForm && (
+              <div className="gfg-card mb-6 border-primary/30 bg-primary/5">
+                <h3 className="font-semibold text-base mb-4 text-primary">Add New Coding Problem</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Problem Title *</label>
+                    <Input value={problemForm.title} onChange={e => setProblemForm(p => ({...p, title: e.target.value}))} placeholder="e.g. Two Sum" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Difficulty</label>
+                    <select value={problemForm.difficulty} onChange={e => setProblemForm(p => ({...p, difficulty: e.target.value as Problem["difficulty"]}))} className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm">
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Constraints</label>
+                    <Input value={problemForm.constraints} onChange={e => setProblemForm(p => ({...p, constraints: e.target.value}))} placeholder="1 ≤ N ≤ 10^5" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Description *</label>
+                    <textarea value={problemForm.description} onChange={e => setProblemForm(p => ({...p, description: e.target.value}))} rows={3} placeholder="Describe the problem clearly..." className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm resize-y" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Input Format</label>
+                    <Input value={problemForm.inputFormat} onChange={e => setProblemForm(p => ({...p, inputFormat: e.target.value}))} placeholder="First line: N ..." />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Output Format</label>
+                    <Input value={problemForm.outputFormat} onChange={e => setProblemForm(p => ({...p, outputFormat: e.target.value}))} placeholder="A single integer ..." />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Sample Input</label>
+                    <textarea value={problemForm.sampleInput} onChange={e => setProblemForm(p => ({...p, sampleInput: e.target.value}))} rows={2} className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm font-mono resize-y" placeholder="5&#10;1 2 3 4 5" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Sample Output</label>
+                    <textarea value={problemForm.sampleOutput} onChange={e => setProblemForm(p => ({...p, sampleOutput: e.target.value}))} rows={2} className="w-full bg-muted border border-border rounded-md px-3 py-2 text-sm font-mono resize-y" placeholder="15" />
+                  </div>
+                </div>
+                <Button onClick={handleAddProblem} className="gap-2"><Save className="h-4 w-4" /> Add Problem</Button>
+              </div>
+            )}
+
             <div className="space-y-3">
-              {mockProblems.map(p => (
+              {allProblems.map(p => (
                 <div key={p.id} className="gfg-card flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       p.difficulty === "Easy" ? "bg-primary/10 text-primary" : p.difficulty === "Medium" ? "bg-gfg-amber/10 text-gfg-amber" : "bg-destructive/10 text-destructive"
                     }`}>{p.difficulty}</span>
-                    <h3 className="font-semibold">{p.title}</h3>
+                    <div>
+                      <h3 className="font-semibold text-sm">{p.title}</h3>
+                      {fsProblems.find(a => a.id === p.id) && (
+                        <span className="text-[10px] text-primary font-bold">Admin-created</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="outline" size="sm" onClick={() => toast.info(`Edit ${p.title}`)}><Edit className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => toast.info(`Delete ${p.title}`)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                    {fsProblems.find(a => a.id === p.id) ? (
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteProblem(p.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground px-2">Default</span>
+                    )}
                   </div>
                 </div>
               ))}
