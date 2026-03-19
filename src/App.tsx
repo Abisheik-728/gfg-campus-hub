@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { GoogleOAuthProvider } from "@react-oauth/google";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -120,13 +119,11 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <GoogleOAuthProvider clientId="334537365982-fvdb8kj22ls02m8s7h74lb6kbk1hju1k.apps.googleusercontent.com">
-          <AuthProvider>
+        <AuthProvider>
             <BrowserRouter>
               <AppRoutes />
             </BrowserRouter>
           </AuthProvider>
-        </GoogleOAuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   </ThemeProvider>

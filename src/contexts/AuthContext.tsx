@@ -9,6 +9,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   User as FirebaseUser,
   updateProfile,
 } from "firebase/auth";
@@ -33,7 +35,7 @@ interface AuthContextType {
     year: number;
   }) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
-  loginWithGoogle: (userData: { email: string; name: string; picture: string }) => void;
+  loginWithGoogle: () => Promise<{ success: boolean; message: string; role?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -225,9 +227,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // ── Google bridge ─────────────────────────────────────────
-  const loginWithGoogle = (_userData: { email: string; name: string; picture: string }) => {
-    // onAuthStateChanged handles Google sign-in automatically
+  // ── Google Sign-In ────────────────────────────────────────
+  const loginWithGoogle = async (): Promise<{ success: boolean; message: string; role?: string }> => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+
+      const result = await signInWithPopup(auth, provider);
+      const fbUser = result.user;
+      const uid    = fbUser.uid;
+
+      // Check if Firestore profile already exists
+      let profile = await getUserProfile(uid);
+
+      if (!profile) {
+        // First-time Google user — create profile with role: "student"
+        const name = fbUser.displayName || fbUser.email?.split("@")[0] || "User";
+        profile = {
+          uid,
+          name,
+          email: fbUser.email || "",
+          role: "student",
+          department: "General",
+          year: 1,
+          problemsSolved: 0,
+          codingPoints: 0,
+          codingStreak: 0,
+          eventsJoined: 0,
+          achievements: [],
+          avatar: name[0].toUpperCase(),
+        };
+        await saveUserProfile(uid, profile);
+      } else {
+        // Heal name if needed
+        const resolvedName = resolveName(fbUser.displayName, fbUser.email, profile.name);
+        if (resolvedName !== profile.name) {
+          profile.name = resolvedName;
+          await saveUserProfile(uid, { name: resolvedName });
+        }
+      }
+
+      // Directly set state — don't wait for onAuthStateChanged
+      setUser(profile);
+      saveCache(profile);
+
+      return { success: true, message: `Welcome, ${profile.name}!`, role: profile.role };
+    } catch (err: any) {
+      // User closed popup — not a real error
+      if (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
+        return { success: false, message: "" };
+      }
+      const msg =
+        err.code === "auth/popup-blocked"          ? "Popup was blocked. Please allow popups for this site." :
+        err.code === "auth/network-request-failed" ? "Network error. Check your connection." :
+        err.code === "auth/unauthorized-domain"    ? "Domain not authorized. Contact the admin." :
+        "Google sign-in failed. Please try again.";
+      return { success: false, message: msg };
+    }
   };
 
   // ── Logout ────────────────────────────────────────────────
