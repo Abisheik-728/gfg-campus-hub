@@ -25,3 +25,7 @@ server/.env
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+
+# Trigger Vercel Build
